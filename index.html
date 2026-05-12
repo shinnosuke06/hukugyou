@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>副業管理アプリ</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js for graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#EAB308', 
+                        dark: '#121212', 
+                        card: '#1E1E1E',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* カスタムスタイル・ダークモード対応 */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #000000;
+            color: #ffffff;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .bottom-nav {
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        
+        /* カスタムチェックボックス */
+        .status-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .status-plan {
+            border: 2px solid #555;
+            background: transparent;
+        }
+        .status-done {
+            background-color: #EAB308;
+            border: 2px solid #EAB308;
+            color: black;
+        }
+        
+        /* 報告モード時の非表示・調整クラス */
+        .report-mode-hide {
+            display: none !important;
+        }
+        .report-compact-list .job-item {
+            padding-top: 0.35rem !important;
+            padding-bottom: 0.35rem !important;
+        }
+        .report-compact-list .list-text {
+            font-size: 0.85rem !important;
+        }
+        .report-compact-list .list-desc {
+            font-size: 0.75rem !important;
+            margin-top: 2px !important;
+            white-space: pre-wrap !important; /* 省略せずにすべて表示 */
+            line-height: 1.3 !important;
+        }
+        .report-compact-list .status-toggle {
+            width: 20px;
+            height: 20px;
+        }
+        
+        /* iOS Safariズーム防止 */
+        input, select, textarea {
+            background-color: #1E1E1E;
+            color: white;
+            border: 1px solid #333;
+            font-size: 16px !important; 
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #EAB308;
+        }
+    </style>
+</head>
+<body class="pb-20">
+
+    <!-- メインコンテンツ領域 -->
+    <div id="app-content" class="w-full max-w-md mx-auto min-h-screen relative">
+        <!-- JSでここにコンテンツが描画されます -->
+    </div>
+
+    <!-- ボトムナビゲーション -->
+    <nav id="bottom-nav" class="fixed bottom-0 left-0 right-0 bg-[#121212] border-t border-gray-800 flex justify-around p-2 bottom-nav z-50">
+        <button onclick="switchTab('list')" class="nav-btn flex flex-col items-center p-2 text-gray-500 hover:text-primary w-1/4" data-tab="list">
+            <i data-lucide="list-todo" class="w-6 h-6"></i>
+            <span class="text-[10px] mt-1">一覧・報告</span>
+        </button>
+        <button onclick="switchTab('add')" class="nav-btn flex flex-col items-center p-2 text-gray-500 hover:text-primary w-1/4" data-tab="add">
+            <i data-lucide="plus-circle" class="w-6 h-6"></i>
+            <span class="text-[10px] mt-1">追加</span>
+        </button>
+        <button onclick="switchTab('stats')" class="nav-btn flex flex-col items-center p-2 text-gray-500 hover:text-primary w-1/4" data-tab="stats">
+            <i data-lucide="bar-chart-2" class="w-6 h-6"></i>
+            <span class="text-[10px] mt-1">推移</span>
+        </button>
+        <button onclick="switchTab('settings')" class="nav-btn flex flex-col items-center p-2 text-gray-500 hover:text-primary w-1/4" data-tab="settings">
+            <i data-lucide="settings" class="w-6 h-6"></i>
+            <span class="text-[10px] mt-1">設定・保存</span>
+        </button>
+    </nav>
+
+    <!-- カスタム確認モーダル -->
+    <div id="confirmModal" class="hidden fixed inset-0 bg-black bg-opacity-70 z-[100] flex items-center justify-center p-4">
+        <div class="bg-card border border-gray-700 rounded-xl w-full max-w-sm p-6 shadow-2xl">
+            <p id="confirmMessage" class="text-white mb-6 text-center leading-relaxed whitespace-pre-wrap"></p>
+            <div class="flex space-x-3">
+                <button onclick="closeConfirmModal()" class="flex-1 py-3 bg-gray-700 text-white rounded-lg font-bold">キャンセル</button>
+                <button onclick="executeConfirm()" class="flex-1 py-3 bg-primary text-black rounded-lg font-bold">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- カスタムアラートモーダル -->
+    <div id="alertModal" class="hidden fixed inset-0 bg-black bg-opacity-70 z-[100] flex items-center justify-center p-4">
+        <div class="bg-card border border-gray-700 rounded-xl w-full max-w-sm p-6 shadow-2xl">
+            <p id="alertMessage" class="text-white mb-6 text-center leading-relaxed whitespace-pre-wrap"></p>
+            <button onclick="closeAlertModal()" class="w-full py-3 bg-primary text-black rounded-lg font-bold">OK</button>
+        </div>
+    </div>
+
+    <!-- スクリプト -->
+    <script>
+        // --- 状態管理 (State) ---
+        let state = {
+            jobs: [], 
+            currentMonth: new Date().toISOString().slice(0, 7), 
+            activeTab: 'list',
+            listFilter: 'all', 
+            editingId: null,
+            isReportMode: false, 
+            settings: {
+                companyA: { 
+                    name: '難波通商', 
+                    defaultAmount: 2.1, 
+                    defaultDesc: '日本アクセス0.1、コープ（神戸西）、近商ばら撒き、イトーヨーカドー・CGC' 
+                },
+                companyB: { 
+                    name: 'タカオさん', 
+                    defaultAmount: 1.5, 
+                    defaultDesc: '' 
+                }
+            }
+        };
+
+        let chartInstance = null;
+        let confirmAction = null; 
+
+        // --- カスタムモーダル制御 ---
+        function showConfirm(message, action) {
+            document.getElementById('confirmMessage').innerText = message;
+            confirmAction = action;
+            document.getElementById('confirmModal').classList.remove('hidden');
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('confirmModal').classList.add('hidden');
+            confirmAction = null;
+        }
+
+        function executeConfirm() {
+            if (confirmAction) confirmAction();
+            closeConfirmModal();
+        }
+
+        function showAlert(message) {
+            document.getElementById('alertMessage').innerText = message;
+            document.getElementById('alertModal').classList.remove('hidden');
+        }
+
+        function closeAlertModal() {
+            document.getElementById('alertModal').classList.add('hidden');
+        }
+
+        // --- 初期化とデータ読み込み ---
+        function init() {
+            loadData();
+            render();
+        }
+
+        function loadData() {
+            const savedData = localStorage.getItem('sideJobData');
+            if (savedData) {
+                try {
+                    const parsed = JSON.parse(savedData);
+                    state.jobs = parsed.jobs || [];
+                    if (parsed.settings) {
+                        state.settings = { ...state.settings, ...parsed.settings };
+                    }
+                } catch (e) {
+                    console.error("データの読み込みに失敗しました", e);
+                }
+            }
+        }
+
+        function saveData() {
+            localStorage.setItem('sideJobData', JSON.stringify({
+                jobs: state.jobs,
+                settings: state.settings
+            }));
+        }
+
+        // --- 共通ユーティリティ ---
+        function generateId() {
+            return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+        }
+
+        function formatDate(dateStr) {
+            const d = new Date(dateStr);
+            const days = ['日', '月', '火', '水', '木', '金', '土'];
+            return `${d.getMonth() + 1}月${d.getDate()}日(${days[d.getDay()]})`;
+        }
+
+        function getLocalMonthString(date) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            return `${y}-${m}`;
+        }
+
+        // --- 描画ロジック (View) ---
+        function render() {
+            const appContent = document.getElementById('app-content');
+            
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                if (btn.dataset.tab === state.activeTab) {
+                    btn.classList.add('text-primary');
+                    btn.classList.remove('text-gray-500');
+                } else {
+                    btn.classList.remove('text-primary');
+                    btn.classList.add('text-gray-500');
+                }
+            });
+
+            switch (state.activeTab) {
+                case 'list': appContent.innerHTML = renderList(); break;
+                case 'add': appContent.innerHTML = renderForm(); break;
+                case 'stats': appContent.innerHTML = renderStats(); setTimeout(initChart, 0); break;
+                case 'settings': appContent.innerHTML = renderSettings(); break;
+            }
+
+            const bottomNav = document.getElementById('bottom-nav');
+            if (state.isReportMode && state.activeTab === 'list') {
+                bottomNav.style.display = 'none';
+            } else {
+                bottomNav.style.display = 'flex';
+            }
+
+            lucide.createIcons();
+        }
+
+        // --- 1. 一覧・報告画面 ---
+        function renderList() {
+            const [year, month] = state.currentMonth.split('-');
+            
+            let monthlyJobs = state.jobs.filter(job => job.date.startsWith(state.currentMonth))
+                                          .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            if (state.listFilter !== 'all') {
+                monthlyJobs = monthlyJobs.filter(job => job.company === state.listFilter);
+            }
+
+            let totalA = 0, totalB = 0;
+            monthlyJobs.forEach(job => {
+                if (job.company === 'A') totalA += parseFloat(job.amount) || 0;
+                if (job.company === 'B') totalB += parseFloat(job.amount) || 0;
+            });
+            totalA = Math.round(totalA * 10) / 10;
+            totalB = Math.round(totalB * 10) / 10;
+            
+            let displayTotal = 0;
+            let totalHtml = '';
+
+            if (state.listFilter === 'all') {
+                displayTotal = Math.round((totalA + totalB) * 10) / 10;
+                totalHtml = `
+                    <div class="flex justify-between mb-1 text-xs text-gray-400">
+                        <span>${state.settings.companyA.name}: <span class="text-white font-bold">${totalA}</span> 万</span>
+                        <span>${state.settings.companyB.name}: <span class="text-white font-bold">${totalB}</span> 万</span>
+                    </div>
+                    <div class="text-right text-base">
+                        合計: <span class="text-primary font-bold text-xl">${displayTotal}</span> 万
+                    </div>
+                `;
+            } else {
+                const isA = state.listFilter === 'A';
+                displayTotal = isA ? totalA : totalB;
+                const compName = isA ? state.settings.companyA.name : state.settings.companyB.name;
+                totalHtml = `
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-400 text-sm">${compName}</span>
+                        <div class="text-right text-base">
+                            合計: <span class="text-primary font-bold text-xl">${displayTotal}</span> 万
+                        </div>
+                    </div>
+                `;
+            }
+
+            let html = `
+                <div class="p-4 ${state.isReportMode ? 'pt-2 pb-0' : ''}">
+                    <!-- ヘッダー -->
+                    <div class="flex justify-between items-center mb-4 ${state.isReportMode ? 'report-mode-hide' : ''}">
+                        <button onclick="changeMonth(-1)" class="p-2 bg-card rounded-full"><i data-lucide="chevron-left"></i></button>
+                        <h1 class="text-xl font-bold">${year}年 ${parseInt(month)}月</h1>
+                        <button onclick="changeMonth(1)" class="p-2 bg-card rounded-full"><i data-lucide="chevron-right"></i></button>
+                    </div>
+
+                    <!-- フィルタ -->
+                    <div class="flex bg-card rounded-lg mb-4 p-1 border border-gray-800 ${state.isReportMode ? 'report-mode-hide' : ''}">
+                        <button onclick="setFilter('all')" class="flex-1 py-1.5 text-sm rounded-md transition ${state.listFilter === 'all' ? 'bg-gray-700 text-white font-bold' : 'text-gray-400'}">全体</button>
+                        <button onclick="setFilter('A')" class="flex-1 py-1.5 text-sm rounded-md transition ${state.listFilter === 'A' ? 'bg-primary text-black font-bold' : 'text-gray-400'}">${state.settings.companyA.name}</button>
+                        <button onclick="setFilter('B')" class="flex-1 py-1.5 text-sm rounded-md transition ${state.listFilter === 'B' ? 'bg-primary text-black font-bold' : 'text-gray-400'}">${state.settings.companyB.name}</button>
+                    </div>
+
+                    <!-- スクショ用タイトル -->
+                    <div class="${state.isReportMode ? 'block' : 'hidden'} text-center mb-2 pb-2 border-b border-gray-700">
+                        <h1 class="text-lg font-bold">${year}年 ${parseInt(month)}月 稼働報告</h1>
+                        ${state.listFilter !== 'all' ? `<div class="text-sm text-gray-400">${state.listFilter === 'A' ? state.settings.companyA.name : state.settings.companyB.name}</div>` : ''}
+                    </div>
+
+                    <!-- 合計枠 -->
+                    <div class="bg-card rounded-xl p-3 mb-4 shadow-lg border border-gray-800 ${state.isReportMode ? 'mb-2 p-2' : ''}">
+                        ${totalHtml}
+                    </div>
+
+                    <!-- アクション -->
+                    <div class="flex justify-between items-center mb-3 ${state.isReportMode ? 'report-mode-hide' : ''}">
+                        <div>
+                            ${state.listFilter !== 'all' ? `
+                                <button onclick="checkAllInView()" class="text-xs bg-gray-800 text-white border border-gray-600 px-3 py-1.5 rounded-lg flex items-center hover:bg-gray-700">
+                                    <i data-lucide="check-square" class="w-3 h-3 mr-1"></i> 今月の入金確認(全チェック)
+                                </button>
+                            ` : '<div></div>'}
+                        </div>
+                        <button onclick="toggleReportMode()" class="flex items-center text-xs text-gray-400 bg-card px-3 py-1.5 rounded-lg border border-gray-800">
+                            <i data-lucide="camera" class="w-3 h-3 mr-1"></i> スクショモード
+                        </button>
+                    </div>
+
+                    <!-- リスト本体 -->
+                    <div class="space-y-0 ${state.isReportMode ? 'report-compact-list' : ''}">
+            `;
+
+            if (monthlyJobs.length === 0) {
+                html += `<div class="text-center text-gray-500 py-10">データがありません</div>`;
+            } else {
+                monthlyJobs.forEach(job => {
+                    const isDone = job.status === 'done';
+                    const statusClass = isDone ? 'status-done' : 'status-plan';
+                    const textClass = isDone ? 'text-gray-400' : 'text-white font-medium';
+                    const icon = isDone ? '<i data-lucide="check" class="w-3 h-3 text-black"></i>' : '';
+
+                    // チェックマーク、日付、金額が確実に一直線に並ぶレイアウト
+                    html += `
+                        <div class="relative py-3 border-b border-gray-800 job-item group">
+                            <div class="flex items-start">
+                                <!-- チェック -->
+                                <div class="flex-none mr-3 mt-0.5 cursor-pointer" onclick="toggleStatus('${job.id}')">
+                                    <div class="status-toggle ${statusClass}">
+                                        ${icon}
+                                    </div>
+                                </div>
+                                
+                                <!-- 内容 -->
+                                <div class="flex-1 min-w-0 pr-10" onclick="editJob('${job.id}')" style="cursor:pointer;">
+                                    <div class="flex items-baseline list-text">
+                                        <span class="mr-2 text-sm ${textClass}">${formatDate(job.date)}</span>
+                                        <span class="font-bold text-primary text-base">${job.amount}</span>
+                                    </div>
+                                    ${job.description ? `<div class="text-xs text-gray-400 mt-1 list-desc whitespace-pre-wrap">${job.description}</div>` : ''}
+                                </div>
+                            </div>
+                            
+                            <!-- ゴミ箱 (右端に固定) -->
+                            <div class="absolute right-0 top-1/2 -translate-y-1/2 ${state.isReportMode ? 'report-mode-hide' : ''}">
+                                <button onclick="event.stopPropagation(); deleteJob('${job.id}')" class="p-2 text-gray-600 hover:text-red-500">
+                                    <i data-lucide="trash-2" class="w-5 h-5"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            html += `</div>`; // リスト本体の終了
+
+            // モード終了ボタンをリストの一番下に配置
+            html += `
+                    <div class="${state.isReportMode ? 'flex' : 'hidden'} justify-center mt-8 mb-4">
+                        <button onclick="toggleReportMode()" class="bg-primary text-black px-6 py-2.5 text-sm rounded-full font-bold shadow-lg flex items-center">
+                            <i data-lucide="x" class="w-4 h-4 mr-1"></i> モード終了
+                        </button>
+                    </div>
+                </div>`;
+                
+            return html;
+        }
+
+        // --- 2. 追加・編集画面 ---
+        function renderForm() {
+            const isEditing = state.editingId !== null;
+            const job = isEditing ? state.jobs.find(j => j.id === state.editingId) : null;
+            
+            const dateVal = job ? job.date : new Date().toISOString().slice(0, 10);
+            const compVal = job ? job.company : 'A';
+            
+            // 新規追加時は選択されている会社のデフォルト値をセット
+            const amountVal = job ? job.amount : (compVal === 'A' ? state.settings.companyA.defaultAmount : state.settings.companyB.defaultAmount);
+            const descVal = job ? job.description : (compVal === 'A' ? state.settings.companyA.defaultDesc : state.settings.companyB.defaultDesc);
+            const statusVal = job ? job.status : 'plan';
+
+            const showA = compVal === 'A' ? 'block' : 'hidden';
+            const showB = compVal === 'B' ? 'block' : 'hidden';
+
+            // 日付と入金確認の配置を変更し、右側に少し余白を持たせる
+            return `
+                <div class="p-4">
+                    <div class="flex items-center mb-6">
+                        ${isEditing ? `<button onclick="cancelEdit()" class="mr-3 p-1"><i data-lucide="arrow-left"></i></button>` : ''}
+                        <h1 class="text-xl font-bold">${isEditing ? '実績の編集' : '新規登録'}</h1>
+                    </div>
+
+                    <form id="jobForm" onsubmit="handleFormSubmit(event)" class="space-y-4">
+                        
+                        <!-- 入金確認と日付 (右端に少し余白をもたせる) -->
+                        <div class="flex justify-start items-end gap-3 w-full">
+                            <div style="width: 40%;">
+                                <label class="block text-xs text-gray-400 mb-1">入金確認</label>
+                                <select id="formStatus" class="w-full px-2 py-2 rounded-lg border border-gray-700" style="box-sizing: border-box;">
+                                    <option value="plan" ${statusVal === 'plan' ? 'selected' : ''}>未確認</option>
+                                    <option value="done" ${statusVal === 'done' ? 'selected' : ''}>確認済</option>
+                                </select>
+                            </div>
+                            <div style="width: 50%;">
+                                <label class="block text-xs text-gray-400 mb-1">日付</label>
+                                <input type="date" id="formDate" value="${dateVal}" class="w-full px-2 py-2 rounded-lg border border-gray-700" style="box-sizing: border-box;" required>
+                            </div>
+                        </div>
+
+                        <!-- 会社選択 -->
+                        <div class="pt-2">
+                            <label class="block text-sm text-gray-400 mb-2">依頼元</label>
+                            <div class="flex space-x-4">
+                                <label class="flex-1 cursor-pointer">
+                                    <input type="radio" name="company" value="A" class="hidden peer" ${compVal === 'A' ? 'checked' : ''} onchange="updateFormUI()">
+                                    <div class="w-full p-3 text-center rounded-lg border border-gray-700 peer-checked:bg-primary peer-checked:text-black font-bold peer-checked:border-primary transition">
+                                        ${state.settings.companyA.name}
+                                    </div>
+                                </label>
+                                <label class="flex-1 cursor-pointer">
+                                    <input type="radio" name="company" value="B" class="hidden peer" ${compVal === 'B' ? 'checked' : ''} onchange="updateFormUI()">
+                                    <div class="w-full p-3 text-center rounded-lg border border-gray-700 peer-checked:bg-primary peer-checked:text-black font-bold peer-checked:border-primary transition">
+                                        ${state.settings.companyB.name}
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- 単価入力 -->
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">単価 (万円)</label>
+                            <div id="quickAmountB" class="${showB} mb-2 flex space-x-2">
+                                <button type="button" onclick="setAmount(1.0)" class="px-4 py-2 bg-card border border-gray-700 rounded-lg hover:border-primary">1.0 万</button>
+                                <button type="button" onclick="setAmount(1.5)" class="px-4 py-2 bg-card border border-gray-700 rounded-lg hover:border-primary">1.5 万</button>
+                            </div>
+                            <input type="number" id="formAmount" step="0.1" value="${amountVal}" class="w-full p-3 rounded-lg text-lg font-bold" required>
+                        </div>
+
+                        <!-- 内容入力 -->
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">内容</label>
+                            <div id="btnTemplateAContainer" class="${showA} mb-2">
+                                <button type="button" onclick="applyTemplateA()" class="w-full bg-gray-800 border border-gray-600 text-white font-medium py-2 px-4 rounded-lg flex items-center justify-center hover:bg-gray-700 transition">
+                                    <i data-lucide="file-text" class="w-4 h-4 mr-2 text-primary"></i> いつもの内容をセットする
+                                </button>
+                            </div>
+                            <textarea id="formDesc" rows="3" class="w-full p-3 rounded-lg text-sm">${descVal}</textarea>
+                        </div>
+
+                        <div class="pt-4">
+                            <button type="submit" class="w-full bg-primary text-black font-bold py-4 rounded-xl shadow-lg flex justify-center items-center">
+                                <i data-lucide="save" class="w-5 h-5 mr-2"></i> ${isEditing ? '更新する' : '保存する'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+        }
+
+        // --- 3. 推移グラフ画面 ---
+        function renderStats() {
+            return `
+                <div class="p-4">
+                    <h1 class="text-xl font-bold mb-6">月別 売上推移</h1>
+                    
+                    <div class="bg-card p-4 rounded-xl shadow-lg border border-gray-800 mb-6">
+                        <canvas id="myChart" width="400" height="250"></canvas>
+                    </div>
+
+                    <div class="text-sm text-gray-400 text-center">
+                        ※グラフはすべての実績（未確認・入金済）の金額を集計しています。
+                    </div>
+                </div>
+            `;
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('myChart');
+            if (!ctx) return;
+
+            const labels = [];
+            const dataA = [];
+            const dataB = [];
+
+            const d = new Date();
+            
+            for (let i = 5; i >= 0; i--) {
+                const targetDate = new Date(d.getFullYear(), d.getMonth() - i, 1);
+                // タイムゾーンによるズレを防ぐため自作のフォーマット関数を使用
+                const monthStr = getLocalMonthString(targetDate);
+                labels.push(`${targetDate.getMonth() + 1}月`);
+
+                let sumA = 0;
+                let sumB = 0;
+                state.jobs.forEach(job => {
+                    if (job.date.startsWith(monthStr)) {
+                        if (job.company === 'A') sumA += parseFloat(job.amount) || 0;
+                        if (job.company === 'B') sumB += parseFloat(job.amount) || 0;
+                    }
+                });
+                dataA.push(Math.round(sumA * 10) / 10);
+                dataB.push(Math.round(sumB * 10) / 10);
+            }
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: state.settings.companyA.name,
+                            data: dataA,
+                            backgroundColor: '#EAB308',
+                        },
+                        {
+                            label: state.settings.companyB.name,
+                            data: dataB,
+                            backgroundColor: '#4B5563',
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: { stacked: true, grid: { color: '#333' } },
+                        y: { stacked: true, grid: { color: '#333' }, ticks: { color: '#9ca3af' } }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#fff' } }
+                    }
+                }
+            });
+        }
+
+        // --- 4. 設定・バックアップ画面 ---
+        function renderSettings() {
+            return `
+                <div class="p-4 space-y-8">
+                    <h1 class="text-xl font-bold mb-6">設定・データ管理</h1>
+
+                    <div class="bg-card p-4 rounded-xl border border-gray-800 space-y-4">
+                        <h2 class="text-lg font-bold text-primary flex items-center"><i data-lucide="building-2" class="w-5 h-5 mr-2"></i> 会社Aの設定</h2>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">表示名</label>
+                            <input type="text" id="setCompanyAName" value="${state.settings.companyA.name}" class="w-full p-2 rounded-lg text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">デフォルト単価(万)</label>
+                            <input type="number" step="0.1" id="setCompanyAAmount" value="${state.settings.companyA.defaultAmount}" class="w-full p-2 rounded-lg text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">いつもの内容 (テンプレ)</label>
+                            <textarea id="setCompanyADesc" rows="3" class="w-full p-2 rounded-lg text-sm">${state.settings.companyA.defaultDesc}</textarea>
+                        </div>
+                    </div>
+
+                    <div class="bg-card p-4 rounded-xl border border-gray-800 space-y-4">
+                        <h2 class="text-lg font-bold text-gray-300 flex items-center"><i data-lucide="building" class="w-5 h-5 mr-2"></i> 会社Bの設定</h2>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">表示名</label>
+                            <input type="text" id="setCompanyBName" value="${state.settings.companyB.name}" class="w-full p-2 rounded-lg text-sm">
+                        </div>
+                    </div>
+
+                    <button onclick="saveSettings()" class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg">
+                        設定を更新する
+                    </button>
+
+                    <hr class="border-gray-800">
+
+                    <div>
+                        <h2 class="text-lg font-bold mb-4 flex items-center"><i data-lucide="database" class="w-5 h-5 mr-2"></i> バックアップ</h2>
+                        <p class="text-xs text-gray-400 mb-4">機種変更時などに、データをテキストでコピーして移動できます。</p>
+                        
+                        <button onclick="exportData()" class="w-full bg-card border border-gray-600 text-white font-bold py-3 rounded-lg mb-4 flex justify-center items-center">
+                            <i data-lucide="clipboard-copy" class="w-4 h-4 mr-2"></i> データをコピー (エクスポート)
+                        </button>
+
+                        <div class="space-y-2">
+                            <label class="block text-sm text-gray-400">データの復元 (インポート)</label>
+                            <textarea id="importArea" rows="3" class="w-full p-2 rounded-lg text-xs font-mono" placeholder="ここにコピーしたデータを貼り付けます"></textarea>
+                            <button onclick="importData()" class="w-full bg-red-900/50 text-red-200 border border-red-800 font-bold py-3 rounded-lg flex justify-center items-center">
+                                <i data-lucide="download" class="w-4 h-4 mr-2"></i> 貼り付けたデータで上書き復元
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- インタラクション・ロジック ---
+
+        function switchTab(tabName) {
+            state.activeTab = tabName;
+            state.isReportMode = false;
+            if (tabName === 'list') {
+                state.listFilter = 'all'; 
+            }
+            if (tabName === 'add') {
+                state.editingId = null; 
+            }
+            render();
+        }
+
+        function setFilter(filter) {
+            state.listFilter = filter;
+            render();
+        }
+
+        function checkAllInView() {
+            if (state.listFilter === 'all') return;
+            const compName = state.listFilter === 'A' ? state.settings.companyA.name : state.settings.companyB.name;
+            
+            showConfirm(`${compName}の今月分の入金を確認し、\nすべてにチェックを付けますか？`, () => {
+                state.jobs.forEach(job => {
+                    if (job.date.startsWith(state.currentMonth) && job.company === state.listFilter) {
+                        job.status = 'done';
+                    }
+                });
+                saveData();
+                render();
+            });
+        }
+
+        function changeMonth(delta) {
+            const date = new Date(state.currentMonth + '-01');
+            date.setMonth(date.getMonth() + delta);
+            state.currentMonth = getLocalMonthString(date);
+            render();
+        }
+
+        function toggleStatus(id) {
+            const job = state.jobs.find(j => j.id === id);
+            if (job) {
+                job.status = job.status === 'done' ? 'plan' : 'done';
+                saveData();
+                render();
+            }
+        }
+
+        function toggleReportMode() {
+            state.isReportMode = !state.isReportMode;
+            render();
+        }
+
+        function deleteJob(id) {
+            showConfirm('この記録を削除しますか？\n（この操作は元に戻せません）', () => {
+                state.jobs = state.jobs.filter(j => j.id !== id);
+                saveData();
+                render();
+            });
+        }
+
+        function editJob(id) {
+            if (state.isReportMode) return; 
+            state.editingId = id;
+            state.activeTab = 'add';
+            render();
+        }
+
+        function cancelEdit() {
+            state.editingId = null;
+            state.activeTab = 'list';
+            render();
+        }
+
+        function updateFormUI() {
+            const isA = document.querySelector('input[name="company"][value="A"]').checked;
+            document.getElementById('quickAmountB').style.display = isA ? 'none' : 'flex';
+            document.getElementById('btnTemplateAContainer').style.display = isA ? 'block' : 'none';
+            
+            // 会社を切り替えた時は内容と金額を自動セットする
+            if (isA) {
+                document.getElementById('formDesc').value = state.settings.companyA.defaultDesc;
+                document.getElementById('formAmount').value = state.settings.companyA.defaultAmount;
+            } else {
+                document.getElementById('formDesc').value = state.settings.companyB.defaultDesc;
+                document.getElementById('formAmount').value = state.settings.companyB.defaultAmount;
+            }
+        }
+
+        function setAmount(val) {
+            document.getElementById('formAmount').value = val;
+        }
+
+        function applyTemplateA() {
+            document.getElementById('formDesc').value = state.settings.companyA.defaultDesc;
+            document.getElementById('formAmount').value = state.settings.companyA.defaultAmount;
+        }
+
+        function handleFormSubmit(e) {
+            e.preventDefault();
+            const date = document.getElementById('formDate').value;
+            const company = document.querySelector('input[name="company"]:checked').value;
+            const amount = parseFloat(document.getElementById('formAmount').value) || 0;
+            const description = document.getElementById('formDesc').value;
+            const status = document.getElementById('formStatus').value;
+
+            if (state.editingId) {
+                const idx = state.jobs.findIndex(j => j.id === state.editingId);
+                if (idx !== -1) {
+                    state.jobs[idx] = { ...state.jobs[idx], date, company, amount, description, status };
+                }
+                state.editingId = null;
+            } else {
+                state.jobs.push({
+                    id: generateId(),
+                    date,
+                    company,
+                    amount,
+                    description,
+                    status
+                });
+            }
+
+            state.currentMonth = date.slice(0, 7);
+            
+            saveData();
+            state.activeTab = 'list';
+            render();
+        }
+
+        function saveSettings() {
+            state.settings.companyA.name = document.getElementById('setCompanyAName').value;
+            state.settings.companyA.defaultAmount = parseFloat(document.getElementById('setCompanyAAmount').value) || 0;
+            state.settings.companyA.defaultDesc = document.getElementById('setCompanyADesc').value;
+            
+            state.settings.companyB.name = document.getElementById('setCompanyBName').value;
+            
+            saveData();
+            showAlert('設定を保存しました');
+        }
+
+        // 超短縮化された文字列でエクスポート (テンプレ文字列の省略、日付の短縮、IDの削除)
+        function exportData() {
+            const settingsOpt = [
+                state.settings.companyA.name, state.settings.companyA.defaultAmount, state.settings.companyA.defaultDesc,
+                state.settings.companyB.name, state.settings.companyB.defaultAmount, state.settings.companyB.defaultDesc
+            ];
+            
+            const jobsOpt = state.jobs.map(j => {
+                const d = j.date.replace(/-/g, '').substring(2); // 例: 2026-05-12 -> 260512
+                let desc = j.description || "";
+                // テンプレと同じ内容は数字に置き換えて文字数を極限まで削る
+                if (j.company === 'A' && desc === state.settings.companyA.defaultDesc) desc = 1;
+                else if (j.company === 'B' && desc === state.settings.companyB.defaultDesc) desc = 2;
+                return [d, j.company === 'A' ? 0 : 1, j.amount, j.status === 'done' ? 1 : 0, desc];
+            });
+
+            const dataStr = JSON.stringify([settingsOpt, jobsOpt]);
+            
+            navigator.clipboard.writeText(dataStr).then(() => {
+                showAlert('短縮版データをコピーしました。\nメモ帳やLINEなどに貼り付けて保管してください。');
+            }).catch(err => {
+                document.getElementById('importArea').value = dataStr;
+                showAlert('自動コピーに失敗しました。\n下の枠の文字をすべてコピーして保管してください。');
+            });
+        }
+
+        // 旧形式と新形式（短縮版）両方のインポートに対応
+        function importData() {
+            const jsonStr = document.getElementById('importArea').value;
+            if (!jsonStr) {
+                showAlert('データが入力されていません');
+                return;
+            }
+            showConfirm('現在のデータはすべて上書きされます。\n本当に復元しますか？', () => {
+                try {
+                    const parsed = JSON.parse(jsonStr);
+                    if (Array.isArray(parsed)) {
+                        if (parsed.length === 2 && Array.isArray(parsed[0]) && parsed[0].length === 6) {
+                            // v3: 超短縮版
+                            const [cSettings, cJobs] = parsed;
+                            state.settings.companyA = { name: cSettings[0], defaultAmount: cSettings[1], defaultDesc: cSettings[2] };
+                            state.settings.companyB = { name: cSettings[3], defaultAmount: cSettings[4], defaultDesc: cSettings[5] };
+                            
+                            state.jobs = cJobs.map(arr => {
+                                // arr: [YYMMDD, 0(A)or1(B), amount, 1or0(done), desc(1or2orStr)]
+                                let y = "20" + arr[0].substring(0, 2);
+                                let m = arr[0].substring(2, 4);
+                                let d = arr[0].substring(4, 6);
+                                let desc = arr[4];
+                                if (desc === 1) desc = state.settings.companyA.defaultDesc;
+                                if (desc === 2) desc = state.settings.companyB.defaultDesc;
+                                return {
+                                    id: generateId(),
+                                    date: `${y}-${m}-${d}`,
+                                    company: arr[1] === 0 ? 'A' : 'B',
+                                    amount: arr[2],
+                                    status: arr[3] ? 'done' : 'plan',
+                                    description: desc
+                                };
+                            });
+                        } else {
+                            // v2: 配列圧縮版 (前回の形式)
+                            const [cJobs, cSettings] = parsed;
+                            state.jobs = cJobs.map(arr => ({
+                                id: arr[0], date: arr[1], company: arr[2], amount: arr[3], status: arr[4] ? 'done' : 'plan', description: arr[5]
+                            }));
+                            if (cSettings && cSettings.length >= 6) {
+                                state.settings.companyA = { name: cSettings[0], defaultAmount: cSettings[1], defaultDesc: cSettings[2] };
+                                state.settings.companyB = { name: cSettings[3], defaultAmount: cSettings[4], defaultDesc: cSettings[5] };
+                            }
+                        }
+                    } else if (parsed.jobs) {
+                        // v1: 旧形式
+                        state.jobs = parsed.jobs;
+                        if (parsed.settings) state.settings = { ...state.settings, ...parsed.settings };
+                    }
+                    saveData();
+                    showAlert('データを復元しました');
+                    document.getElementById('importArea').value = '';
+                    render();
+                } catch (e) {
+                    showAlert('エラー: データの形式が正しくありません');
+                }
+            });
+        }
+
+        // --- 起動 ---
+        window.onload = init;
+
+    </script>
+</body>
+</html>
